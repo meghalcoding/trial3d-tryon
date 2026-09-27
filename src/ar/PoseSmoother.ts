@@ -13,19 +13,23 @@ export interface PoseSmoothingSettings {
   readonly rotationHalfLifeSeconds: number
 }
 
-export const DEFAULT_POSITION_HALF_LIFE_SECONDS = 0.035
-export const DEFAULT_ROTATION_HALF_LIFE_SECONDS = 0.025
-const MIN_HALF_LIFE_SECONDS = 1e-6
+export const DEFAULT_POSITION_HALF_LIFE_SECONDS = 0
+export const DEFAULT_ROTATION_HALF_LIFE_SECONDS = 0
 const MAX_DELTA_SECONDS = 0.25
 const MIN_ADAPTIVE_HALF_LIFE_SECONDS = 0.012
 
 /**
  * Deterministic, frame-rate-independent smoother for canonical FacePose data.
  *
+ * A half-life of 0 (the default) means NO smoothing: the pose snaps fully to
+ * the latest target every frame, so the glasses track the face with zero
+ * added latency ("stuck to the face"). Raising a half-life trades some of
+ * that immediacy for reduced jitter from landmark noise.
+ *
  * Position and scale use exponential convergence. Rotation uses quaternion
- * slerp with velocity-adaptive half-life: during head rotation or movement,
- * half-life is dynamically reduced to eliminate tracking lag while maintaining
- * stability when stationary.
+ * slerp. Both support a velocity-adaptive half-life: during head rotation or
+ * movement, half-life is dynamically reduced (never increased) to eliminate
+ * tracking lag while allowing extra smoothing when nearly stationary.
  */
 export class PoseSmoother {
   private positionHalfLifeSeconds: number
@@ -110,19 +114,22 @@ export class PoseSmoother {
       const linearDistance = this.position.distanceTo(targetPosition)
       const linearVelocity = linearDistance / clampedDeltaSeconds
 
-      // Adaptively scale down half-life during rapid motion for instant response
+      // Adaptively scale down half-life during rapid motion for instant response.
+      // Wrapped in min() so this can only ever REDUCE latency relative to the
+      // configured half-life, never increase it -- important when the
+      // configured half-life is already at or below MIN_ADAPTIVE_HALF_LIFE_SECONDS
+      // (e.g. 0, "instant"): without the min(), lerping toward the adaptive
+      // floor from below would paradoxically ADD lag during fast motion.
       const rotFactor = Math.max(0, Math.min(1, (angularVelocity - 0.2) / 1.5))
       const posFactor = Math.max(0, Math.min(1, (linearVelocity - 2.0) / 10.0))
 
-      const effectiveRotHalfLife = THREE.MathUtils.lerp(
+      const effectiveRotHalfLife = Math.min(
         this.rotationHalfLifeSeconds,
-        MIN_ADAPTIVE_HALF_LIFE_SECONDS,
-        rotFactor,
+        THREE.MathUtils.lerp(this.rotationHalfLifeSeconds, MIN_ADAPTIVE_HALF_LIFE_SECONDS, rotFactor),
       )
-      const effectivePosHalfLife = THREE.MathUtils.lerp(
+      const effectivePosHalfLife = Math.min(
         this.positionHalfLifeSeconds,
-        MIN_ADAPTIVE_HALF_LIFE_SECONDS,
-        posFactor,
+        THREE.MathUtils.lerp(this.positionHalfLifeSeconds, MIN_ADAPTIVE_HALF_LIFE_SECONDS, posFactor),
       )
 
       const positionAlpha = halfLifeAlpha(clampedDeltaSeconds, effectivePosHalfLife)
@@ -158,12 +165,18 @@ export function halfLifeAlpha(deltaSeconds: number, halfLifeSeconds: number): nu
   }
 
   const halfLife = validateHalfLife(halfLifeSeconds, 'halfLifeSeconds')
+  if (halfLife === 0) {
+    // Instant: fully converge in one step. Also sidesteps 0/0 = NaN when
+    // deltaSeconds is also 0 (though PoseSmoother.update already short-circuits
+    // that case before reaching here).
+    return deltaSeconds > 0 ? 1 : 0
+  }
   return 1 - Math.pow(0.5, deltaSeconds / halfLife)
 }
 
 function validateHalfLife(value: number, name: string): number {
-  if (!Number.isFinite(value) || value <= MIN_HALF_LIFE_SECONDS) {
-    throw new Error(`${name} must be a finite value greater than zero.`)
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be a finite value greater than or equal to zero.`)
   }
 
   return value

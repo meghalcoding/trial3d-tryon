@@ -127,7 +127,11 @@ export const DEFAULT_FACE_OCCLUSION_SETTINGS: FaceOcclusionSettings = Object.fre
   depthScale: 1,
   depthBias: 0.08,
   surfaceScale: 1.015,
-  landmarkSmoothingHalfLifeSeconds: 0.045,
+  // Kept fast (not 0) relative to the now-instant glasses pose smoothing:
+  // literal 0 here would let raw per-frame landmark depth noise show up as
+  // visible shimmer at the occlusion boundary (e.g. where a temple arm is
+  // hidden behind the head), trading a lag artifact for a noise artifact.
+  landmarkSmoothingHalfLifeSeconds: 0.02,
 
   mode: 'hardened',
 
@@ -154,7 +158,10 @@ export const DEFAULT_FACE_OCCLUSION_SETTINGS: FaceOcclusionSettings = Object.fre
   contactShadowOpacity: 0.25,
   lightingMatchEnabled: false,
 
-  matchTrackerCamera: false,
+  // Match the renderer projection to the actual video crop by default. This is
+  // essential on portrait phone viewports, where the 16:9 camera stream is
+  // heavily cover-cropped and a fixed 60° FOV makes the glasses undersized.
+  matchTrackerCamera: true,
   trackerVerticalFovDeg: 63,
 
   debugShowOccluders: false,

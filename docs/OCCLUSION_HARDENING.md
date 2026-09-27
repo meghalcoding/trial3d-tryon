@@ -256,7 +256,21 @@ the real face; it's opt-in (`matchTrackerCamera`) because it changes on-screen
 glasses size by a few percent versus the previous behaviour, which existing
 calibrations may have been tuned against.
 
-## Settings & compatibility
+## Motion latency and the occlusion surface
+
+Glasses position/rotation latency is a separate concern from occlusion,
+covered in full in `docs/MOTION_LATENCY.md`. The one place it touches this
+document: the occlusion depth surface has its own smoothing stage
+(`landmarkSmoothingHalfLifeSeconds`), tightened from 45ms to 20ms alongside
+the pose-latency work so the hidden/visible boundary it produces (e.g. where
+a temple arm disappears behind the head) doesn't visibly lag behind the
+glasses during a fast head turn. It was deliberately *not* set to 0 like the
+pose smoother: that surface is rebuilt from noisy per-frame landmark depth,
+and zero smoothing there trades a latency artifact for a worse one — visible
+shimmer at the occlusion boundary. It remains independently tunable in the
+occlusion panel.
+
+
 
 `types/FaceOcclusion.ts` keeps the original (v1) settings keys verbatim —
 `referenceFaceWidthCm`, `depthScale`, `depthBias`, `surfaceScale` — used only

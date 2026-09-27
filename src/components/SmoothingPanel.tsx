@@ -26,24 +26,24 @@ const SLIDER_SPECS: readonly SliderSpec[] = [
   {
     key: 'positionHalfLifeSeconds',
     label: 'Position / scale response',
-    min: 0.02,
+    min: 0,
     max: 0.3,
     step: 0.001,
-    help: 'Lower = faster/snappier movement. Higher = smoother/slower movement.',
+    help: '0 = glasses snap instantly to the tracked face, no lag. Higher trades some of that immediacy for less jitter.',
   },
   {
     key: 'rotationHalfLifeSeconds',
     label: 'Rotation response',
-    min: 0.02,
+    min: 0,
     max: 0.3,
     step: 0.001,
-    help: 'Lower = faster head rotation response. Higher = more damped rotation.',
+    help: '0 = head rotation is followed instantly, no lag. Higher damps fast turns at the cost of a slight delay.',
   },
 ]
 
 export const DEFAULT_SMOOTHING_SETTINGS: PoseSmoothingSettings = Object.freeze({
-  positionHalfLifeSeconds: 0.08,
-  rotationHalfLifeSeconds: 0.08,
+  positionHalfLifeSeconds: 0,
+  rotationHalfLifeSeconds: 0,
 })
 
 export function smoothingToSliderValues(
@@ -90,7 +90,9 @@ export function SmoothingPanel({
           <p className="eyebrow">Motion</p>
           <h2>Tracking smoothing</h2>
           <p className="smoothing-panel__description">
-            Lower half-life values respond faster; higher values produce smoother, more damped motion.
+            Defaults to 0 (instant, zero-latency): the glasses snap to the tracked face every
+            frame with no smoothing, so they look stuck to the face. Raise these only if landmark
+            jitter becomes distracting; each step trades some immediacy for smoother motion.
           </p>
         </div>
         <span className="calibration-panel__active" aria-live="polite">

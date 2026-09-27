@@ -38,25 +38,6 @@
     }
   },
   {
-    "id": "circular-001",
-    "name": "Circular 001",
-    "price": 0,
-    "currency": "USD",
-    "thumbnail": "/assets/thumbnails/circular-001.svg",
-    "model": "/assets/models/circular-001.glb",
-    "color": "Silver",
-    "size": "Standard",
-    "calibration": {
-      "scale": 0.2733,
-      "x": 4.2,
-      "y": -3.5,
-      "z": 7,
-      "rotationX": -0.014,
-      "rotationY": 0,
-      "rotationZ": 0
-    }
-  },
-  {
     "id": "circular-002",
     "name": "Circular 002",
     "price": 0,

@@ -59,6 +59,8 @@ function TryOnView() {
   const [smoothingSettings, setSmoothingSettings] = useState<PoseSmoothingSettings>(() => ({ ...DEFAULT_SMOOTHING_SETTINGS }))
   const [faceOcclusionSettings, setFaceOcclusionSettings] = useState<FaceOcclusionSettings>(() => ({ ...DEFAULT_FACE_OCCLUSION_SETTINGS }))
   const [occlusionStatus, setOcclusionStatus] = useState<OcclusionStatusView | null>(null)
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [cameraResolution, setCameraResolution] = useState('Resolution unavailable')
   const [, setProductCatalogVersion] = useState(0)
   const products = productService.listProducts()
   const [selectedProductId, setSelectedProductId] = useState(() => products[0]?.id ?? '')
@@ -185,10 +187,29 @@ function TryOnView() {
   }, [faceOcclusionSettings])
 
   useEffect(() => {
+    if (!diagnosticsOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDiagnosticsOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [diagnosticsOpen])
+
+  useEffect(() => {
     if (cameraState !== 'active') {
       setOcclusionStatus(null)
+      setCameraResolution('Resolution unavailable')
       return
     }
+
+    // Publish only actual resolution changes; never mirror per-frame data into React state.
+    const resolutionTimer = window.setInterval(() => {
+      const video = videoRef.current
+      const nextResolution = video?.videoWidth && video?.videoHeight
+        ? `${video.videoWidth} × ${video.videoHeight} px`
+        : 'Resolution unavailable'
+      setCameraResolution((current) => current === nextResolution ? current : nextResolution)
+    }, 1000)
 
     // Only publish when something the panel shows actually changed: publishing
     // re-renders this component, which re-runs the inline canvas ref callbacks.
@@ -224,7 +245,10 @@ function TryOnView() {
       }
     }, 500)
 
-    return () => window.clearInterval(id)
+    return () => {
+      window.clearInterval(id)
+      window.clearInterval(resolutionTimer)
+    }
   }, [cameraState])
 
   useEffect(() => {
@@ -745,15 +769,9 @@ function TryOnView() {
         />
       </div>
 
-      <aside className="product-controls product-controls--calibration" aria-label="Eyewear calibration controls">
-        <GLBUploadPanel
-          folderSelected={modelsFolderRef.current !== null}
-          onChooseFolder={selectModelsFolder}
-          onUpload={uploadGLB}
-        />
-        <GLBDiagnosticPanel
-          result={autoCalibrationResult}
-          modelUrl={products.find((p) => p.id === selectedProductId)?.model}
+      <aside hidden aria-hidden="true" className="product-controls product-controls--calibration" aria-label="Developer controls">
+        <GLBUploadPanel folderSelected={modelsFolderRef.current !== null} onChooseFolder={selectModelsFolder} onUpload={uploadGLB} />
+        <GLBDiagnosticPanel result={autoCalibrationResult} modelUrl={products.find((p) => p.id === selectedProductId)?.model}
           onApplyAutoCalibration={() => {
             if (activeLoadedModelRef.current) {
               const analysis = glbAnalyzer.analyzeAsset(activeLoadedModelRef.current.scene)
@@ -762,33 +780,47 @@ function TryOnView() {
               updateCalibration(result.finalCalibration, 'change')
             }
           }}
-          onResetManualCorrection={() => {
-            if (autoCalibrationResult) {
-              updateCalibration(autoCalibrationResult.autoCalibration, 'reset')
-            }
-          }}
-        />
-        <CalibrationPanel
-          calibration={calibration}
-          onChange={updateCalibration}
-          onReset={resetCalibration}
-          onExport={exportCalibration}
-        />
-        <SmoothingPanel
-          settings={smoothingSettings}
-          onChange={updateSmoothingSettings}
-          onReset={resetSmoothing}
-          onExport={exportSmoothing}
-        />
-        <FaceOcclusionPanel
-          settings={faceOcclusionSettings}
-          status={occlusionStatus}
-          onBakeClearance={bakeClearance}
-          onChange={updateFaceOcclusion}
-          onReset={resetFaceOcclusion}
-          onExport={exportFaceOcclusion}
-        />
+          onResetManualCorrection={() => { if (autoCalibrationResult) updateCalibration(autoCalibrationResult.autoCalibration, 'reset') }} />
+        <CalibrationPanel calibration={calibration} onChange={updateCalibration} onReset={resetCalibration} onExport={exportCalibration} />
+        <SmoothingPanel settings={smoothingSettings} onChange={updateSmoothingSettings} onReset={resetSmoothing} onExport={exportSmoothing} />
+        <FaceOcclusionPanel settings={faceOcclusionSettings} status={occlusionStatus} onBakeClearance={bakeClearance}
+          onChange={updateFaceOcclusion} onReset={resetFaceOcclusion} onExport={exportFaceOcclusion} />
       </aside>
+
+      <section className={`system-drawer ${diagnosticsOpen ? 'system-drawer--open' : ''}`} aria-label="AR system diagnostics">
+        <button className="system-drawer__toggle" type="button" aria-expanded={diagnosticsOpen}
+          aria-controls="system-drawer-content" onClick={() => setDiagnosticsOpen((open) => !open)}>
+          <span className="system-drawer__signal" aria-hidden="true" />
+          <span>AR SYSTEM / {cameraState === 'active' ? 'LIVE TELEMETRY' : 'STANDBY'}</span>
+          <span className="system-drawer__summary">CAM {cameraState.toUpperCase()} · FACE {trackingState.toUpperCase()}</span>
+          <span className="system-drawer__chevron" aria-hidden="true">{diagnosticsOpen ? '−' : '+'}</span>
+        </button>
+        <div id="system-drawer-content" className="system-drawer__content" aria-hidden={!diagnosticsOpen} inert={!diagnosticsOpen}>
+          <div className="system-drawer__heading"><span>RUNTIME OBSERVABILITY</span><span>LOCAL · ON-DEVICE</span></div>
+          <div className="system-drawer__grid">
+            <article className="system-readout"><span className="system-readout__index">01 / INPUT</span><h3>CAMERA</h3>
+              <strong>{cameraState === 'active' ? 'STREAM ACTIVE' : cameraState.toUpperCase()}</strong>
+              <p>{cameraResolution}</p>
+              <small>{cameraMessage || 'Camera starts only after user permission.'}</small>
+            </article>
+            <article className="system-readout"><span className="system-readout__index">02 / VISION</span><h3>FACE TRACKING</h3>
+              <strong>{trackingState.toUpperCase()}</strong><p>{latestFacePoseRef.current ? 'Transformation matrix received' : 'Awaiting valid face pose'}</p>
+              <small>{trackingError || 'Single-face pose tracking runs locally in the browser.'}</small>
+            </article>
+            <article className="system-readout"><span className="system-readout__index">03 / ASSET</span><h3>EYEWEAR MODEL</h3>
+              <strong>{loadingProductId ? 'LOADING MODEL' : activeLoadedModelRef.current ? 'MODEL ACTIVE' : 'NO MODEL ACTIVE'}</strong>
+              <p>{products.find((product) => product.id === selectedProductId)?.name ?? 'No product selected'}</p>
+              <small>{autoCalibrationResult ? `Auto-calibration: ${autoCalibrationResult.isAutoApplied ? 'applied' : 'not applied'}` : 'Product calibration is supplied by catalog data.'}</small>
+            </article>
+            <article className="system-readout"><span className="system-readout__index">04 / OCCLUSION</span><h3>DEPTH & MASK</h3>
+              <strong>{occlusionStatus?.occlusion.foregroundMaskActive ? 'FOREGROUND MASK ACTIVE' : occlusionStatus?.occlusion.occluder.hasSurface ? 'FACE DEPTH ACTIVE' : 'STATUS PENDING'}</strong>
+              <p>{occlusionStatus ? `Mode: ${occlusionStatus.occlusion.occluder.mode}` : 'Occlusion telemetry unavailable'}</p>
+              <small>{occlusionStatus ? `Segmenter: ${occlusionStatus.segmenter}; avg ${Math.round(occlusionStatus.segmenterMs)} ms` : 'Status is reported by the active renderer and segmenter.'}</small>
+            </article>
+          </div>
+          <div className="system-drawer__foot"><span>PROCESSING: BROWSER DEVICE</span><span>CAMERA FRAMES ARE NOT UPLOADED</span><span>WEBGL: {cameraState === 'active' ? (arError ? 'DEGRADED' : 'INITIALIZED') : 'IDLE'}</span></div>
+        </div>
+      </section>
     </main>
   )
 }
@@ -797,11 +829,14 @@ function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div>
-          <p className="eyebrow">Virtual try-on</p>
-          <h1>Eyewear Try-On</h1>
+        <div className="brand-lockup" aria-label="Forma eyewear virtual try-on">
+          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <div>
+            <p className="eyebrow">FORMA / VIRTUAL OPTICS</p>
+            <h1>TRY ON<span>—</span></h1>
+          </div>
         </div>
-        <span className="app-header__status">POC</span>
+        <span className="app-header__status"><span className="status-dot" /> LIVE DEMO</span>
       </header>
       <TryOnView />
     </div>
